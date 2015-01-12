@@ -1,0 +1,477 @@
+<?php
+module_load_include('inc','openweathermap','voronoi/Point');
+module_load_include('inc','openweathermap','voronoi/Voronoi');
+module_load_include('inc','openweathermap','weather/openweather.weather');
+
+function openweathermap_menu()
+{
+    $items = array();
+    $items['openweathermap/set'] = array(
+        'page callback' => 'drupal_get_form',
+        'description' => 'Formular zum Anlegen einer Wetterstation',
+        'title' => 'Wetterstation anlegen',
+	'access arguments' => array('administer users'),
+        'page arguments' => array('createWeatherstation_form'),
+    );
+    $items['openweathermap/test'] = array(
+        'page callback' => 'drupal_get_form',
+        'description' => 'Formular zum Anlegen einer Wetterstation',
+        'title' => 'Wetter anfordern',
+	'access arguments' => array('administer users'),
+        'page arguments' => array('getWetterInfos'),
+    );
+    return $items;
+}
+function getWetterInfos()
+{
+    $query = new EntityFieldQuery;
+    $query->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'openweathermap')
+    ->fieldCondition('field_ow_weatherupdate', 'value',(strtotime(date('d.m.Y'))+3600) ,'<');            
+    $result = $query->execute();
+    drupal_set_message(count($result['node']));
+    $wetter = new openweather_weather('ow_koelnrodenkirchen_2846032', '2014-12-31', '2015-1-3');
+    drupal_set_message($wetter->weatherstation);
+    
+    
+    
+    
+    $sql = 'SELECT nid FROM {node} n WHERE n.type = :type';
+    $result = db_query($sql, array(':type' => 'openweathermap'));
+    dpm($result);
+    foreach ($result as $node)
+    {
+        //Node laden
+       $weathernode = node_load($node->nid);
+       dpm($weathernode->field_ow_uuid['und'][0]['value']);
+       dpm($weathernode->field_ow_station['und'][0]['value']);
+    };
+    
+    
+    
+}
+function openweathermap_node_info()
+{
+    $contenttypes = array();
+    $contenttypes['openweathermap'] = array(
+        'name' => t('OpenWeatherMap Station'),
+        'base' => 'node_content',
+        'description' => t('Mit Hilfe diesen CTs koennen Wetterstationen angelegt werden'),
+        'has_title' => TRUE,
+        'title_label' => t('OpenWeatherImport')
+    );
+    return $contenttypes;
+}
+function openweathermap_form($node, $form_state)
+{
+    return node_content_form($node,$form_state);
+}
+function openweathermap_cron()
+{
+    $type = 'openweathermap';
+    drupal_set_message('Geht los');
+    $query = new EntityFieldQuery;
+    $query->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'openweathermap')
+        ->fieldCondition('field_ow_weatherupdate', 'value',(strtotime(date('d.m.Y'))+3600) ,'<');            
+    $result = $query->execute();
+    drupal_set_message(count($result['node']));
+    
+    foreach ($result['node'] as $n)
+    {
+        $url = null;
+        $stationsname = null;
+        $stationsid = null;
+        $letzteAufzeichnung = null;
+        //Stationsname filtern
+        $result_stationsname = db_query('SELECT n.field_ow_station_value FROM {field_data_field_ow_station} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+        foreach ($result_stationsname as $stationname)
+        {
+            $stationsname = preg_replace ( '/[^a-z0-9 ]/i', ' ',$stationname->field_ow_station_value);
+        }
+        //Stations ID filtern
+        $result_id = db_query('SELECT n.field_ow_uuid_value FROM {field_data_field_ow_uuid} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+        foreach ($result_id as $uuid)
+        {
+            $stationsid = $uuid->field_ow_uuid_value;
+        }
+        
+        //Abfrage des letzten Eintrags in der Wetterkartei
+        $tablename ='ow_'.strtolower(str_replace(' ','',$stationsname)).'_'.$stationsid;
+        //letzten Eintrag aus der Tabelle filtern
+        $result = db_query('select extract(epoch from timestamp) as timestamp from '.$tablename.' order by timestamp desc limit 1;');
+        if(!$result->rowCount()==0)
+        {
+            foreach ($result as $time)
+            {
+                //Vergleich mit Heute, dann werden nur Wetterstationen abgefragt die noch nicht dran waren
+                $letzteAufzeichnung = $time->timestamp;
+                //URL zusammennbauen
+                $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$letzteAufzeichnung.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
+        	
+	    }
+        }
+        else
+        {
+            //Benoetigt werden das Datum von Heute 0:00Uhr und von Gestern 1:00Uhr.
+            //$gestern_gm = gmdate('Y-m-d H:i:s',strtotime('-1 days'));
+            $gestern_jahr = gmdate('Y',strtotime('-1 days'));
+            $gestern_monat = gmdate('m',strtotime('-1 days'));
+            $gestern_tag = gmdate('d',strtotime('-1 days'));
+            $gestern_eins = gmmktime(0, 0, 0, $gestern_monat, $gestern_tag, $gestern_jahr);
+	    $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$gestern_eins.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
+        }
+        openweathermap_getandsaveJSONData($url,$tablename,$n->nid);
+   }
+}
+
+function openweathermap_saveDatainDatabase($input,$tablename,$nid,$timestamp)
+{
+    $keys = '';
+    $values = '';
+    foreach ($input as $key => $value)
+    {
+        $keys = $keys.','.$key;
+        $values = $values.','.$value;
+    }
+    db_query('INSERT INTO '.$tablename.'('.substr($keys,1).') VALUES ('.substr($values,1).');');
+    if(!is_null($timestamp))
+    {
+        drupal_set_message('Tabelle: '.$tablename.' befüllt');
+        $node = node_load($nid);
+        $node->field_ow_weatherupdate[$node->language][0]['value'] = $timestamp;
+        $node->field_ow_weatherupdate[$node->language][0]['format'] = 'filtered_html';
+        $node = node_submit($node);
+        node_save($node);
+    }
+}
+
+function openweathermap_getandsaveJSONData($url,$tablename,$nid)
+{
+    $stream_options = stream_context_create(array
+        ( 
+            'http' => array
+            ( 
+                'timeout' => 10 
+            ) 
+        )
+    );
+    drupal_set_message('Verbindung zu '.$tablename.' aufbauen');
+    $json = file_get_contents($url,0,$stream_options);
+    $data = json_decode($json,true);
+    drupal_set_message(json_last_error());
+    $input = array();
+    if(isset($data['list']))
+    {
+        $i = 0;
+        foreach ($data['list'] as $weatherelement)
+        {
+            unset($input);
+            $i++;
+	    if(isset($weatherelement['dt']))
+	    {
+        	$input['timestamp'] = 'to_timestamp('.$weatherelement['dt'].')';
+	    }
+            if(isset($weatherelement['main']['temp']))
+            {
+                $input['temp'] = $weatherelement['main']['temp'];
+            }
+            if(isset($weatherelement['main']['humidity']))
+            {
+                $input['humidity'] = $weatherelement['main']['humidity'];
+            }
+            if(isset($weatherelement['rain']['3h']))
+            {
+                $input['rain'] = $weatherelement['rain']['3h'];
+            }
+            if(isset($weatherelement['snow']['3h']))
+            {
+                $input['snow'] = $weatherelement['snow']['3h'];
+            }
+            if(isset($weatherelement['main']['pressure']))
+            {
+                $input['pressure'] = $weatherelement['main']['pressure'];
+            }
+            if(isset($weatherelement['wind']['speed']))
+            {
+                $input['windspeed'] = $weatherelement['wind']['speed'];
+            }
+            if(isset($weatherelement['wind']['deg']))
+            {
+                $input['winddirection'] = $weatherelement['wind']['deg'];
+            }
+            $input['forecast'] = "'0'";
+            if($i == count($data['list']))
+            {
+                openweathermap_saveDatainDatabase($input,$tablename,$nid,$weatherelement['dt']);
+            }
+            else
+            {
+                openweathermap_saveDatainDatabase($input,$tablename,$nid,null);
+            }
+        } 
+    }
+    else
+    {
+        drupal_set_message('Table: '.$tablename.' keine neuen Wetterdaten');
+    }
+}
+
+function createWeatherstation_form($form, &$form_state) 
+{
+    $javascript = drupal_get_path('module', 'openweathermap').'/js';
+    $form['autoweather'] = array(
+        '#type' => 'textfield', //you can find a list of available types in the form api
+        '#title' => 'Wetterstations Finder',
+        '#id' => 'autoweather',
+        '#size' => 10,
+        '#maxlength' => 10,
+        '#attached' => array(
+            'library' => array(
+                array('system','ui.autocomplete'),
+            ),
+            'js' => array("$javascript/weatherautocomplete.js"),
+        )
+    );
+    $form['vorschlag'] = array(
+        '#type' => 'container',
+        '#title' => 'Vorgeschlagene Wetterstationen:',
+        '#required' => FALSE,
+        '#attributes' => array(
+            'class' => array(
+                'autovorschlag-wetterstationen',
+            ),
+        ),
+    );
+    $form['name'] = array(
+        '#type' => 'textfield',
+        '#title' => 'Name der Wetterstation',
+        '#size' => 50,
+        '#maxlength' => 50,
+        '#required' => TRUE, //
+    );
+    $form['staat'] = array(
+        '#type' => 'textfield',
+        '#title' => 'Staat in dem sich die Wetterstation befindet',
+        '#size' => 10,
+        '#maxlength' => 10,
+        '#required' => TRUE, //
+    );
+    $form['id'] = array(
+        '#type' => 'textfield', //you can find a list of available types in the form api
+        '#title' => 'Wetterstations ID',
+        '#required' => TRUE, //make this field required
+    );
+    $form['x'] = array(
+        '#type' => 'textfield', //you can find a list of available types in the form api
+        '#title' => 'Wetterstations Koordinate X (Longitude)',
+        '#required' => TRUE, //make this field required
+    );
+    $form['y'] = array(
+        '#type' => 'textfield', //you can find a list of available types in the form api
+        '#title' => 'Wetterstations Koordinate Y (Latitude)',
+        '#size' => 10,
+        '#maxlength' => 10,
+        '#required' => TRUE, //make this field required
+    );
+    $form['submit_button'] = array(
+        '#type' => 'submit',
+        '#value' => t('erzeuge Wetterstation'),
+    );
+    return $form;
+}
+
+function createWeatherstation_form_validate($form, &$form_state)
+{
+    
+}
+
+function createWeatherstation_form_submit($form, &$form_state)
+{
+    //Anlegen der Wetterstation als Node
+    //Ueberpruefen ob die UUID schon vorhanden ist, dann kann dieses nicht angelegt werden
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'openweathermap')
+    ->fieldCondition('field_ow_uuid', 'value', $form_state['values']['id'],'=');
+    $count = $query->count()->execute();
+    if($count > 0)
+    {
+        drupal_set_message('Wetterstation ist bereits vorhanden und muss nicht erneut angelegt werden');
+    }
+    else
+    {
+        $maschinenname = preg_replace ( '/[^a-z0-9 ]/i', ' ', $form_state['values']['name']);
+        $maschinenname = str_replace ( ' ', '', $maschinenname);
+        drupal_set_message('Wetterstation erfolgreich angelegt');
+        $node = new stdClass();
+        $node->type = 'openweathermap';
+        node_object_prepare($node);
+        $node->title = 'OpenWeather '.$form_state['values']['id'].' '.$form_state['values']['name'];
+        $node->field_ow_uuid['und'][0]['value'] = $form_state['values']['id'];
+        $node->field_ow_station['und'][0]['value'] = $form_state['values']['name'];
+        $node->field_ow_szfreiername['und'][0]['value'] = $maschinenname;
+        $node->field_ow_staat['und'][0]['value'] = $form_state['values']['staat'];
+        $node->field_ow_point['und'][0]['geom'] = 'POINT ('.$form_state['values']['x'].' '.$form_state['values']['y'].')';
+        $node->field_ow_point['und'][0]['geo_type'] = 'point';
+        $node->field_ow_point['und'][0]['lat'] = $form_state['values']['y'];
+        $node->field_ow_point['und'][0]['lon'] = $form_state['values']['x'];
+      
+        $node->language = LANGUAGE_NONE;
+        node_save($node);
+        //Anlegen der Wetterstations als Datenbank Tabelle für die Speicherung der Wetterinformationen
+        $requestquery = "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE  n.nspname = 'public' AND    c.relname = '".'ow_'.strtolower($form_state['values']['name']).'_'.$form_state['values']['id']."') as result;";
+        $result = db_query($requestquery);
+        foreach($result as $wert)
+        {
+//            dpm($wert);
+            if($wert->result != FALSE)
+            {
+                drupal_set_message('Wettertabelle ist bereits vorhanden');
+            }
+            else
+            {
+                db_create_table('ow_'.$maschinenname.'_'.$form_state['values']['id'], createWeatherstation_Weatherdatatable());
+                drupal_set_message('Wettertabelle erfolgreich angelegt');
+            }
+        }
+        createVoronoiDiagramm();
+    }
+}
+function createWeatherstation_Weatherdatatable()
+{
+    $schema = array(
+        'description' => 'User gained score by type, area and time.',
+        'fields' => array(
+            'timestamp' => array('pgsql_type' => 'timestamp with time zone', 'not null' => TRUE ),
+            'temp' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'rain' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'snow' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'pressure' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'humidity' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'windspeed' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'winddirection' => array('type' => 'float', 'unsigned' => TRUE, 'not null' => FALSE),
+            'forecast' => array('pgsql_type' => 'boolean', 'not null' => TRUE,'default' => '0'),
+        ),
+    );
+    return $schema;
+}
+
+
+function transformCoordsToPoint($lon, $lat) //X und Y
+{
+    $coord =array();
+    $coord['x'] = $lon+180;
+    if($lat >=0)
+    {
+        $coord['y'] = (90-$lat)*100;
+    }
+    else
+    {
+        $coord['y'] = (90+($lat*-1))*100;
+    }
+    return $coord;
+}
+
+function transformPointToCoords($lon, $lat)
+{
+    $point =array();
+    $point['x'] = ($lon/100)-180;
+    if($lat>=90)
+    {
+        $point['y'] = (($lat/100)-90)*-1;
+    }
+    else
+    {
+        $point['y'] = 90-($lat/100);
+    }
+    return $point;
+}
+function createVoronoiDiagramm()
+{
+
+    //Berechnung des Voronoi-Diagramms
+    //Benötigt=> alle Punkte (field_ow_point) und die Node IDs 
+    $nodes = node_load_multiple(array(), array('type' => 'openweathermap'));
+    $sites = array();
+    $bbox = new stdClass();
+    $bbox->xl = 0;
+    $bbox->xr = 36000;
+    $bbox->yt = 0;
+    $bbox->yb = 18000;
+    $testid = 0;
+    foreach ($nodes as $node)
+    {
+        
+        $xKoord = $node->field_ow_point['und'][0]['lon'];
+        $yKoord = $node->field_ow_point['und'][0]['lat'];
+        //dpm($xKoord.' '.$yKoord);
+        $coord = transformCoordsToPoint($xKoord,$yKoord);
+//        dpm('if($i=='.$testid.')
+//        {
+//            $point = new Nurbs_Point('.$coord['x'].','. $coord['y'].');
+//            $point->uuid = '.$node->nid.';
+//        }');
+        $testid++;
+        $point = new Nurbs_Point($coord['x'], $coord['y']);
+        //$test = transformPointToCoords($coord['x'], $coord['y']);
+        //dpm($test['x'].' '.$test['y']);
+        $point->uuid = $node->nid;
+        $sites[] = $point;
+    }
+    $voronoi = new Voronoi();
+    $diagram = $voronoi->compute($sites, $bbox);
+    //dpm($diagram);
+    $j = 0;
+    foreach ($diagram['cells'] as $cell) 
+    {
+        //dpm($j);
+        $points = array();
+        if (count($cell->_halfedges) > 0) 
+        {
+            $v = $cell->_halfedges[0]->getStartPoint();
+            if ($v) 
+            {
+                $points[] = $v->x;
+                $points[] = $v->y;
+            }
+            else 
+            {
+                drupal_set_message($j.': no start point');
+            }
+            for ($i = 0; $i < count($cell->_halfedges); $i++) 
+            {
+                $halfedge = $cell->_halfedges[$i];
+                $v = $halfedge->getEndPoint();
+                if ($v) 
+                {
+                    $points[] = $v->x;
+                    $points[] = $v->y;
+                } else {
+                    var_dump($j.': no end point #'.$i);
+                }
+            }
+        }
+        $polygonstring = 'POLYGON(';
+        $startpoint = array();
+        for ($i = 0; $i< count($points);$i= $i+2)
+        {
+            $point = transformPointToCoords($points[$i],$points[$i+1]);
+            if($i == 0)
+            {
+                $polygonstring = $polygonstring.$point['x'].' '.$point['y'];
+                $startpoint['x'] = $point['x'];
+                $startpoint['y'] = $point['y'];
+            }
+            else
+            {
+                $polygonstring = $polygonstring.','.$point['x'].' '.$point['y'];
+            }
+        }
+        $polygonstring = $polygonstring.','.$startpoint['x'].' '.$startpoint['y'].')';
+        $node = node_load($cell->_site->uuid);
+        $node->field_ow_area['und'][0]['geom'] = $polygonstring;
+        node_save($node);
+        $j++;
+    }    
+}

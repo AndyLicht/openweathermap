@@ -1,0 +1,68 @@
+<?php
+
+//Importieren von notwendigem Programmcode, dieser wurde aus GrÃ¼nden der Ãbersichtlichkeit ausgelagert
+module_load_include('inc','openweathermap','install/openweathermap.getFields');
+module_load_include('inc','openweathermap','install/openweathermap.getInstances');
+
+
+//Importieren der Installationsfunktionen
+module_load_include('inc','openweathermap','install/openweathermap.createFields');
+module_load_include('inc','openweathermap','install/openweathermap.installOpenWeatherMap');
+//Install der Contenttypes
+//Funktioniert nur Ã¼ber einen Rebuild der Contenttypes
+
+function openweathermap_install()
+{
+    //Vocabulary
+    //Content types
+    node_types_rebuild();
+    $types = node_type_get_types();
+    //installiert die Felder, die in unterschiedlichen Contenttypes verwendet werden
+    installFields();
+    //erzeugt fÃ¼r jeden Contenttype die entsprechenden Feld-Instanzen
+    install_ow_station();
+}
+//Funktion die neben den Contenttypes, auch sÃ¤mtliche Nodes, Felder und Kommentare lÃ¶scht
+
+function openweathermap_uninstall()
+{
+    $contenttypes = array('openweathermap');
+    //erst alle Wettertabellen löschen
+    $result = db_query('SELECT n.nid FROM {node} n WHERE n.type = :tp', array(':tp' => $contenttypes));
+    foreach ($result as $n)
+    {
+        $result = db_query('SELECT n.field_ow_station_value FROM {field_data_field_ow_station} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+        $stationsname = null;
+        $stationsid = null;
+        foreach ($result as $stationname)
+        {
+            $stationsname = $stationname->field_ow_station_value;
+        }
+        $result = db_query('SELECT n.field_ow_uuid_value FROM {field_data_field_ow_uuid} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+        foreach ($result as $n)
+        {
+            $stationsid = $n->field_ow_uuid_value;
+        }
+        //Abfrage des letzten Eintrags in der Wetterkartei
+        $tablename ='ow_'.strtolower($stationsname).'_'.$stationsid;
+        db_drop_table($tablename);
+    }
+    foreach ($contenttypes as $ct)
+    {
+        $sql = 'SELECT nid FROM {node} n WHERE n.type = :type';
+        $result = db_query($sql, array(':type' => $ct));
+        $nodeids = array();
+        foreach ($result as $row)
+        {
+            $nodeids[] = $row->nid;
+        }
+        node_delete_multiple($nodeids);
+        node_type_delete($ct);
+        $instance = array('field_name' => 'comment_body','bundle' => 'comment_node_'.$ct,'entity_type' => 'comment');
+        field_delete_instance($instance);
+        $instance = array('field_name' => 'body','bundle' => $ct,'entity_type' => 'node');
+        field_delete_instance($instance);
+    }
+    //Purge all field information
+    field_purge_batch(1000);
+}

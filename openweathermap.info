@@ -1,0 +1,6 @@
+name = OpenWeatherMap Import
+description = Mit diesem Modul koennen Wetterdaten von Open
+core = 7.x
+package = andylicht
+dependencies[] = geofield
+dependencies[] = jquery_update
