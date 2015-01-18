@@ -26,11 +26,7 @@ function getWetterInfos()
 {
     
     $wetter = new openweather_weather('ow_rostock_2844588', '2014-12-31', '2015-1-17');
-    dpm($wetter->weather[0]);
-    dpm($wetter->weather[1]);
-    dpm($wetter->weather[1]->maxValue('temp'));
-    dpm($wetter->weather[1]->minValue('temp'));
-    dpm($wetter->weather[1]->avValue('temp'));
+    dpm($wetter);
     
     $sql = 'SELECT nid FROM {node} n WHERE n.type = :type';
     $result = db_query($sql, array(':type' => 'openweathermap'));

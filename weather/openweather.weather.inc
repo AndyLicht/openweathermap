@@ -1,9 +1,11 @@
 <?php
+module_load_include('inc','openweathermap','weather/openweather.weatherentry');
+module_load_include('inc','openweathermap','weather/openweather.weatherday');
+
 
 class openweather_weather
 {
-    var $weatherofweatherstation = [];
-    var $interpolierteswetter = [];
+    private $weatherofweatherstation = [];
     var $from = NULL;
     var $to = NULL;
     var $weatherstation = NULL;
@@ -24,7 +26,7 @@ class openweather_weather
     /*
      * Abfrage der entsprechenden Datenbanktablle nach sämtlichen Wetterdaten, eingeschränkt auf die bereits im Konstruktor angegebene Zeitspanne
      */
-    function getweatherdatafromdatabase()
+    private function getweatherdatafromdatabase()
     {
 	//select * from ow_example_2844588 where timestamp>'2014-12-20' and timestamp <'2014-12-28';
 	$result = db_query("SELECT * from ".$this->weatherstation." where timestamp >'".$this->from."' and timestamp < '".$this->to."';" );
@@ -39,7 +41,7 @@ class openweather_weather
     
     
     
-    function interpoliereweatherdata()
+    private function interpoliereweatherdata()
     {
         $datum = [];
         $datumundzeit = [];
@@ -70,7 +72,7 @@ class openweather_weather
         }
     }
     
-    function openweatherinterpol($datetime,$options,$weatherday)
+    private function openweatherinterpol($datetime,$options,$weatherday)
     {
         $inttemp = NULL;
         $intrain = NULL;
@@ -104,7 +106,7 @@ class openweather_weather
     
     
     
-    function interpolierung($diffmin,$diffmax,$valuemin,$valuemax)
+    private function interpolierung($diffmin,$diffmax,$valuemin,$valuemax)
     {
         if(!is_null($valuemin) && !is_null($valuemax))
         { 
@@ -137,7 +139,7 @@ class openweather_weather
             return null;
         }
     }
-    function follower($datumundzeit,$weatherday)
+    private function follower($datumundzeit,$weatherday)
     {
         foreach($datumundzeit as $datetime)
         {
@@ -183,80 +185,13 @@ class openweather_weather
             }
             $this->openweatherinterpol($datetime,$options,$weatherday);
         }
-    }  
-}
-
-class weatherentry
-{
-    var $timestamp = null;
-    var $temp = null;
-    var $rain = null;
-    var $snow = null;
-    var $humidity = null;
-    var $forecast = false;
-    
-    function weatherentry($timestamp,$rain,$temp,$snow,$humidity)
-    {
-        $this->timestamp =$timestamp;
-        $this->temp = $temp;
-        $this->snow = $snow;
-        $this->rain = $rain;
-        $this->humidity = $humidity;
     } 
+    
+    function tempsum()
+    {
+        return null;
+    }
 }
 
-class weatherday
-{
-    var $timestamp = null;
-    var $datum = null;
-    var $weather = [];
-   
-    
-    function weatherday($day)
-    {
-        $this->timestamp = strtotime($day);
-        $this->datum = $day;
-    }
-    
-    function addWeather($wettereintrag)
-    {
-        array_push($this->weather,$wettereintrag);
-    }
-    
-    function avValue($whichValue)
-    {
-        $average = null;
-        $i = 0;
-        foreach ($this->weather as $value)
-        {
-            $i++;
-            $average = $average + $value->$whichValue;
-        }
-        return $average/$i;
-    }
-    
-    function maxValue($whichValue)
-    {
-        $maximum = null;
-        foreach ($this->weather as $value)
-        {
-            if($maximum <= $value->$whichValue)
-            {
-                $maximum = $value->$whichValue;
-            }
-        }
-        return $maximum;
-    }
-    function minValue($whichValue)
-    {
-        $minimum = null;
-        foreach ($this->weather as $value)
-        {
-            if($minimum >= $value->$whichValue || $minimum == null)
-            {
-                $minimum = $value->$whichValue;
-            }
-        }
-        return $minimum;
-    }
-}
+
+
