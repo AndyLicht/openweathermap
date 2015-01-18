@@ -24,32 +24,23 @@ function openweathermap_menu()
 }
 function getWetterInfos()
 {
-    $query = new EntityFieldQuery;
-    $query->entityCondition('entity_type', 'node')
-    ->entityCondition('bundle', 'openweathermap')
-    ->fieldCondition('field_ow_weatherupdate', 'value',(strtotime(date('d.m.Y'))+3600) ,'<');            
-    $result = $query->execute();
-    drupal_set_message(count($result['node']));
-    $wetter = new openweather_weather('ow_koelnrodenkirchen_2846032', '2014-12-31', '2015-1-3');
-    drupal_set_message($wetter->weatherstation);
     
-    
-    
+    $wetter = new openweather_weather('ow_rostock_2844588', '2014-12-31', '2015-1-17');
+    dpm($wetter->weather[0]);
+    dpm($wetter->weather[1]);
+    dpm($wetter->weather[1]->maxValue('temp'));
+    dpm($wetter->weather[1]->minValue('temp'));
+    dpm($wetter->weather[1]->avValue('temp'));
     
     $sql = 'SELECT nid FROM {node} n WHERE n.type = :type';
     $result = db_query($sql, array(':type' => 'openweathermap'));
-    dpm($result);
     foreach ($result as $node)
     {
         //Node laden
        $weathernode = node_load($node->nid);
-       dpm($weathernode->field_ow_uuid['und'][0]['value']);
-       dpm($weathernode->field_ow_station['und'][0]['value']);
     };
-    
-    
-    
 }
+
 function openweathermap_node_info()
 {
     $contenttypes = array();
@@ -75,54 +66,55 @@ function openweathermap_cron()
         ->entityCondition('bundle', 'openweathermap')
         ->fieldCondition('field_ow_weatherupdate', 'value',(strtotime(date('d.m.Y'))+3600) ,'<');            
     $result = $query->execute();
-    drupal_set_message(count($result['node']));
-    
-    foreach ($result['node'] as $n)
-    {
-        $url = null;
-        $stationsname = null;
-        $stationsid = null;
-        $letzteAufzeichnung = null;
-        //Stationsname filtern
-        $result_stationsname = db_query('SELECT n.field_ow_station_value FROM {field_data_field_ow_station} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
-        foreach ($result_stationsname as $stationname)
+    if(count($result)>0)
+    {    
+        foreach ($result['node'] as $n)
         {
-            $stationsname = preg_replace ( '/[^a-z0-9 ]/i', ' ',$stationname->field_ow_station_value);
-        }
-        //Stations ID filtern
-        $result_id = db_query('SELECT n.field_ow_uuid_value FROM {field_data_field_ow_uuid} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
-        foreach ($result_id as $uuid)
-        {
-            $stationsid = $uuid->field_ow_uuid_value;
-        }
-        
-        //Abfrage des letzten Eintrags in der Wetterkartei
-        $tablename ='ow_'.strtolower(str_replace(' ','',$stationsname)).'_'.$stationsid;
-        //letzten Eintrag aus der Tabelle filtern
-        $result = db_query('select extract(epoch from timestamp) as timestamp from '.$tablename.' order by timestamp desc limit 1;');
-        if(!$result->rowCount()==0)
-        {
-            foreach ($result as $time)
+            $url = null;
+            $stationsname = null;
+            $stationsid = null;
+            $letzteAufzeichnung = null;
+            //Stationsname filtern
+            $result_stationsname = db_query('SELECT n.field_ow_station_value FROM {field_data_field_ow_station} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+            foreach ($result_stationsname as $stationname)
             {
-                //Vergleich mit Heute, dann werden nur Wetterstationen abgefragt die noch nicht dran waren
-                $letzteAufzeichnung = $time->timestamp;
-                //URL zusammennbauen
-                $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$letzteAufzeichnung.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
-        	
-	    }
-        }
-        else
-        {
-            //Benoetigt werden das Datum von Heute 0:00Uhr und von Gestern 1:00Uhr.
-            //$gestern_gm = gmdate('Y-m-d H:i:s',strtotime('-1 days'));
-            $gestern_jahr = gmdate('Y',strtotime('-1 days'));
-            $gestern_monat = gmdate('m',strtotime('-1 days'));
-            $gestern_tag = gmdate('d',strtotime('-1 days'));
-            $gestern_eins = gmmktime(0, 0, 0, $gestern_monat, $gestern_tag, $gestern_jahr);
-	    $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$gestern_eins.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
-        }
-        openweathermap_getandsaveJSONData($url,$tablename,$n->nid);
-   }
+                $stationsname = preg_replace ( '/[^a-z0-9 ]/i', ' ',$stationname->field_ow_station_value);
+            }
+            //Stations ID filtern
+            $result_id = db_query('SELECT n.field_ow_uuid_value FROM {field_data_field_ow_uuid} n WHERE n.entity_id = :tp', array(':tp' => $n->nid));
+            foreach ($result_id as $uuid)
+            {
+                $stationsid = $uuid->field_ow_uuid_value;
+            }
+
+            //Abfrage des letzten Eintrags in der Wetterkartei
+            $tablename ='ow_'.strtolower(str_replace(' ','',$stationsname)).'_'.$stationsid;
+            //letzten Eintrag aus der Tabelle filtern
+            $result = db_query('select extract(epoch from timestamp) as timestamp from '.$tablename.' order by timestamp desc limit 1;');
+            if(!$result->rowCount()==0)
+            {
+                foreach ($result as $time)
+                {
+                    //Vergleich mit Heute, dann werden nur Wetterstationen abgefragt die noch nicht dran waren
+                    $letzteAufzeichnung = $time->timestamp;
+                    //URL zusammennbauen
+                    $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$letzteAufzeichnung.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
+
+                }
+            }
+            else
+            {
+                //Benoetigt werden das Datum von Heute 0:00Uhr und von Gestern 1:00Uhr.
+                //$gestern_gm = gmdate('Y-m-d H:i:s',strtotime('-1 days'));
+                $gestern_jahr = gmdate('Y',strtotime('-1 days'));
+                $gestern_monat = gmdate('m',strtotime('-1 days'));
+                $gestern_tag = gmdate('d',strtotime('-1 days'));
+                $gestern_eins = gmmktime(0, 0, 0, $gestern_monat, $gestern_tag, $gestern_jahr);
+                $url ='http://api.openweathermap.org/data/2.5/history/city?id='.$stationsid.'&type=hour&end='.time().'&start='.$gestern_eins.'&APPID=20ee9f20dd5066c8806ba2ea5f804528';
+            }
+            openweathermap_getandsaveJSONData($url,$tablename,$n->nid);
+       }
+    }
 }
 
 function openweathermap_saveDatainDatabase($input,$tablename,$nid,$timestamp)
@@ -387,6 +379,11 @@ function transformPointToCoords($lon, $lat)
     }
     return $point;
 }
+
+
+
+
+
 function createVoronoiDiagramm()
 {
 

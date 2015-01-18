@@ -7,7 +7,11 @@ class openweather_weather
     var $from = NULL;
     var $to = NULL;
     var $weatherstation = NULL;
+    var $weather = [];
 
+    /*
+     * Constructor, erzeugt alle Variablen und führt auch alle Funktionen aus
+     */
     function openweather_weather($weatherstation, $from, $to)
     {
 	$this->weatherstation = $weatherstation;
@@ -17,6 +21,9 @@ class openweather_weather
         $this->interpoliereweatherdata();
     }
 
+    /*
+     * Abfrage der entsprechenden Datenbanktablle nach sämtlichen Wetterdaten, eingeschränkt auf die bereits im Konstruktor angegebene Zeitspanne
+     */
     function getweatherdatafromdatabase()
     {
 	//select * from ow_example_2844588 where timestamp>'2014-12-20' and timestamp <'2014-12-28';
@@ -29,9 +36,11 @@ class openweather_weather
 	}
     }
     
+    
+    
+    
     function interpoliereweatherdata()
     {
-        //$this->weatherofweatherstation;
         $datum = [];
         $datumundzeit = [];
         foreach ($this->weatherofweatherstation as $wetter)
@@ -42,6 +51,7 @@ class openweather_weather
         foreach (array_unique($datum) as $day)
         {
             $i = 0;
+            $weatherday = new weatherday($day);
             while ($i<24)
             { 
                 if($i<10)
@@ -54,8 +64,81 @@ class openweather_weather
                 }
                 $i++;
             }
+            $this->follower($datumundzeit,$weatherday);
+            array_push($this->weather,$weatherday);
+            $datumundzeit = [];
         }
-        //für jede Zeit Vor- und Nachfolger finden
+    }
+    
+    function openweatherinterpol($datetime,$options,$weatherday)
+    {
+        $inttemp = NULL;
+        $intrain = NULL;
+        $intsnow = NULL;
+        $inthumidity = NULL;
+        if(is_null($options['groesser']) && !is_null($options['kleiner']))
+        {
+            $inttemp = $options['temp_min'];
+            $intrain = $options['rain_min'];
+            $intsnow = $options['snow_min'];
+            $inthumidity = $options['humidity_min']; 
+        }
+        elseif(!is_null($options['groesser']) && is_null($options['kleiner']))
+        {
+            $inttemp = $options['temp_max'];
+            $intrain = $options['rain_max'];
+            $intsnow = $options['snow_max'];
+            $inthumidity = $options['humidity_max']; 
+        }
+        else
+        {
+            $inttemp = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['temp_min'],$options['temp_max']);
+            $intrain = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['rain_max']);
+            $intsnow = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['snow_max']);
+            $inthumidity = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['humidity_max']);
+        }
+        $interpoliertesWetter = new weatherentry($datetime, $intrain, $inttemp, $intsnow, $inthumidity);
+        //Weatherentry an weatherday anhängen
+        $weatherday->addWeather($interpoliertesWetter);
+    }
+    
+    
+    
+    function interpolierung($diffmin,$diffmax,$valuemin,$valuemax)
+    {
+        if(!is_null($valuemin) && !is_null($valuemax))
+        { 
+            if($diffmin<0)
+            {
+                $diffmin = $diffmin * -1;
+            }
+            if($diffmax<0)
+            {
+                $diffmax = $diffmax * -1;
+            }
+            $diff = $diffmin + $diffmax;
+            $valuediff = $valuemax - $valuemin;
+            $intervall = $valuediff / $diff;
+            $value = $valuemin + ($diffmin*$intervall);
+            return $value;
+        }
+        elseif (!is_null($valuemin) && is_null($valuemax))
+        {
+            $value = $valuemin;
+            return ($value);
+        }
+        elseif(is_null($valuemin) && !is_null($valuemax))
+        {
+            $value = $valuemax;
+            return $value;
+        }
+        else
+        {
+            return null;
+        }
+    }
+    function follower($datumundzeit,$weatherday)
+    {
         foreach($datumundzeit as $datetime)
         {
             $options['difference_min_null'] = NULL;
@@ -98,73 +181,9 @@ class openweather_weather
                    }
                }     
             }
-            $this->openweatherinterpol($datetime,$options);
+            $this->openweatherinterpol($datetime,$options,$weatherday);
         }
-    }
-    
-    function openweatherinterpol($datetime,$options)
-    {
-        $inttemp = NULL;
-        $intrain = NULL;
-        $intsnow = NULL;
-        $inthumidity = NULL;
-        if(is_null($options['groesser']) && !is_null($options['kleiner']))
-        {
-            $inttemp = $options['temp_min'];
-            $intrain = $options['rain_min'];
-            $intsnow = $options['snow_min'];
-            $inthumidity = $options['humidity_min']; 
-        }
-        elseif(!is_null($options['groesser']) && is_null($options['kleiner']))
-        {
-            $inttemp = $options['temp_max'];
-            $intrain = $options['rain_max'];
-            $intsnow = $options['snow_max'];
-            $inthumidity = $options['humidity_max']; 
-        }
-        else
-        {
-            $inttemp = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['temp_min'],$options['temp_max']);
-            $intrain = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['rain_max']);
-            $intsnow = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['snow_max']);
-            $inthumidity = $this->interpolierung($options['difference_min_null'],$options['difference_max_null'],$options['rain_min'],$options['humidity_max']);
-        }
-        $interpoliertesWetter = new weatherentry($datetime, $intrain, $inttemp, $intsnow, $inthumidity);
-        array_push($this->interpolierteswetter,$interpoliertesWetter);
-    }
-    function interpolierung($diffmin,$diffmax,$valuemin,$valuemax)
-    {
-        if(!is_null($valuemin) && !is_null($valuemax))
-        { 
-            if($diffmin<0)
-            {
-                $diffmin = $diffmin * -1;
-            }
-            if($diffmax<0)
-            {
-                $diffmax = $diffmax * -1;
-            }
-            $diff = $diffmin + $diffmax;
-            $valuediff = $valuemax - $valuemin;
-            $intervall = $valuediff / $diff;
-            $value = $valuemin + ($diffmin*$intervall);
-            return $value;
-        }
-        elseif (!is_null($valuemin) && is_null($valuemax))
-        {
-            $value = $valuemin;
-            return ($value);
-        }
-        elseif(is_null($valuemin) && !is_null($valuemax))
-        {
-            $value = $valuemax;
-            return $value;
-        }
-        else
-        {
-            return null;
-        }
-    }
+    }  
 }
 
 class weatherentry
@@ -174,6 +193,7 @@ class weatherentry
     var $rain = null;
     var $snow = null;
     var $humidity = null;
+    var $forecast = false;
     
     function weatherentry($timestamp,$rain,$temp,$snow,$humidity)
     {
@@ -183,4 +203,60 @@ class weatherentry
         $this->rain = $rain;
         $this->humidity = $humidity;
     } 
+}
+
+class weatherday
+{
+    var $timestamp = null;
+    var $datum = null;
+    var $weather = [];
+   
+    
+    function weatherday($day)
+    {
+        $this->timestamp = strtotime($day);
+        $this->datum = $day;
+    }
+    
+    function addWeather($wettereintrag)
+    {
+        array_push($this->weather,$wettereintrag);
+    }
+    
+    function avValue($whichValue)
+    {
+        $average = null;
+        $i = 0;
+        foreach ($this->weather as $value)
+        {
+            $i++;
+            $average = $average + $value->$whichValue;
+        }
+        return $average/$i;
+    }
+    
+    function maxValue($whichValue)
+    {
+        $maximum = null;
+        foreach ($this->weather as $value)
+        {
+            if($maximum <= $value->$whichValue)
+            {
+                $maximum = $value->$whichValue;
+            }
+        }
+        return $maximum;
+    }
+    function minValue($whichValue)
+    {
+        $minimum = null;
+        foreach ($this->weather as $value)
+        {
+            if($minimum >= $value->$whichValue || $minimum == null)
+            {
+                $minimum = $value->$whichValue;
+            }
+        }
+        return $minimum;
+    }
 }
