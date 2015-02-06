@@ -1,10 +1,6 @@
 <?php
 
 //Importieren von notwendigem Programmcode, dieser wurde aus GrÃ¼nden der Ãbersichtlichkeit ausgelagert
-module_load_include('inc','openweathermap','install/openweathermap.getFields');
-module_load_include('inc','openweathermap','install/openweathermap.getInstances');
-
-
 //Importieren der Installationsfunktionen
 module_load_include('inc','openweathermap','install/openweathermap.createFields');
 module_load_include('inc','openweathermap','install/openweathermap.installOpenWeatherMap');
