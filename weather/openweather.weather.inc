@@ -37,10 +37,7 @@ class openweather_weather
             array_push($this->weatherofweatherstation,$values);
 	}
     }
-    
-    
-    
-    
+        
     private function interpoliereweatherdata()
     {
         $datum = [];
@@ -103,8 +100,6 @@ class openweather_weather
         //Weatherentry an weatherday anhängen
         $weatherday->addWeather($interpoliertesWetter);
     }
-    
-    
     
     private function interpolierung($diffmin,$diffmax,$valuemin,$valuemax)
     {
@@ -187,8 +182,27 @@ class openweather_weather
         }
     } 
     
-    function tempsum()
+    function tempsum($start,$temp, $minvalue, $maxvalue)
     {
+        //alle Wetter einträge durch gehen
+        dpm($start.'  '.$temp.'  '.$minvalue.'  '.$maxvalue);
+        $tempsum = 0;
+        foreach ($this->weather as $wettereintrag)
+        {
+            if($wettereintrag->datum >= $start && $wettereintrag->avValue('temp') > $temp)
+            {
+                $tempsum = $tempsum  + ($wettereintrag->avValue('temp') - $temp);
+                if($tempsum >= $minvalue)
+                {
+                    dpm ($wettereintrag);
+                    dpm ($tempsum);
+                }
+            }
+            if ($tempsum >= $maxvalue)
+            {
+                break;
+            }
+        }
         return null;
     }
 }
